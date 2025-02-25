@@ -9,11 +9,11 @@ export class World {
         // Block textures
         this.textureLoader = new THREE.TextureLoader();
         this.textures = {
-            dirt: this.textureLoader.load('./textures/dirt.png'),
-            grass: this.textureLoader.load('./textures/grass_top.png'),
-            grassSide: this.textureLoader.load('./textures/grass_side.png'),
-            stone: this.textureLoader.load('./textures/stone.png'),
-            wood: this.textureLoader.load('./textures/wood.png'),
+            dirt: this.textureLoader.load('./textures/dirt.jpg'),
+            grass: this.textureLoader.load('./textures/grass.jpg'),
+            grassSide: this.textureLoader.load('./textures/grass_side.jpg'),
+            stone: this.textureLoader.load('./textures/stone.jpg'),
+            wood: this.textureLoader.load('./textures/wood.jpg'),
             leaves: this.textureLoader.load('./textures/leaves.png')
         };
         
