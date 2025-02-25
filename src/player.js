@@ -9,6 +9,15 @@ export class Player {
         this.jumpForce = 10.0;
         this.selectedBlockType = 'dirt'; // Default block to place
         
+        // Initialize inventory first, before any methods that might use it
+        this.inventory = {
+            dirt: 64,
+            grass: 64,
+            stone: 64,
+            wood: 64,
+            leaves: 64
+        };
+        
         // Setup raycaster for block interaction
         this.raycaster = new THREE.Raycaster();
         this.raycaster.far = 5; // Maximum reach distance
@@ -83,13 +92,37 @@ export class Player {
         hudContainer.style.fontFamily = 'monospace';
         document.body.appendChild(hudContainer);
         
+        // Add inventory display
+        const inventoryContainer = document.createElement('div');
+        inventoryContainer.id = 'inventory';
+        inventoryContainer.style.position = 'absolute';
+        inventoryContainer.style.bottom = '60px';
+        inventoryContainer.style.left = '50%';
+        inventoryContainer.style.transform = 'translateX(-50%)';
+        inventoryContainer.style.color = 'white';
+        inventoryContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        inventoryContainer.style.padding = '5px 10px';
+        inventoryContainer.style.borderRadius = '5px';
+        inventoryContainer.style.fontFamily = 'monospace';
+        document.body.appendChild(inventoryContainer);
+        
         this.updateSelectedBlockHUD();
+        this.updateInventoryHUD();
     }
     
     updateSelectedBlockHUD() {
         const hudElement = document.getElementById('selected-block');
         if (hudElement) {
             hudElement.textContent = `Selected Block: ${this.selectedBlockType} (1-5 to change)`;
+        }
+    }
+    
+    updateInventoryHUD() {
+        const inventoryElement = document.getElementById('inventory');
+        if (inventoryElement && this.inventory) {
+            inventoryElement.innerHTML = Object.entries(this.inventory)
+                .map(([type, count]) => `${type}: ${count}`)
+                .join(' | ');
         }
     }
     
@@ -109,14 +142,31 @@ export class Player {
             const blockY = Math.round(intersectedObject.position.y);
             const blockZ = Math.round(intersectedObject.position.z);
             
+            // Get the block type before removing it
+            const position = `${blockX},${blockY},${blockZ}`;
+            const blockData = this.world.blocks.get(position);
+            const blockType = blockData ? blockData.type : null;
+            
             // Remove the block
             this.world.removeBlock(blockX, blockY, blockZ);
             
             console.log(`Removed block at (${blockX}, ${blockY}, ${blockZ})`);
+            
+            // After successfully removing a block, add it to inventory
+            if (blockType && this.inventory && this.inventory[blockType] !== undefined) {
+                this.inventory[blockType]++;
+                this.updateInventoryHUD();
+            }
         }
     }
     
     placeBlock() {
+        // Only place if we have blocks in inventory
+        if (this.inventory[this.selectedBlockType] <= 0) {
+            console.log(`No ${this.selectedBlockType} blocks left in inventory`);
+            return;
+        }
+        
         // Cast ray from camera
         this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
         
@@ -154,6 +204,10 @@ export class Player {
             this.world.addBlock(x, y, z, this.selectedBlockType);
             
             console.log(`Placed ${this.selectedBlockType} block at (${x}, ${y}, ${z})`);
+            
+            // If block was successfully placed, reduce inventory
+            this.inventory[this.selectedBlockType]--;
+            this.updateInventoryHUD();
         }
     }
     
