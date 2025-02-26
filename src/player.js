@@ -187,15 +187,15 @@ export class Player {
             const y = Math.round(point.y + normal.y * 0.5);
             const z = Math.round(point.z + normal.z * 0.5);
             
-            // Don't place block if it would overlap with the player
+            // Improved player collision check
             const playerPos = this.camera.position;
-            const playerBlockX = Math.floor(playerPos.x);
-            const playerBlockY = Math.floor(playerPos.y);
-            const playerBlockZ = Math.floor(playerPos.z);
+            const playerRadius = 0.3;
+            const playerHeight = 1.8;
             
-            // Check if the new block would be at the player's position or head position
-            if ((x === playerBlockX && y === playerBlockY && z === playerBlockZ) ||
-                (x === playerBlockX && y === playerBlockY - 1 && z === playerBlockZ)) {
+            // Check if the new block would collide with the player
+            const wouldCollide = this.checkBlockPlayerCollision(x, y, z, playerPos, playerRadius, playerHeight);
+            
+            if (wouldCollide) {
                 console.log("Can't place block here - would overlap with player");
                 return;
             }
@@ -209,6 +209,46 @@ export class Player {
             this.inventory[this.selectedBlockType]--;
             this.updateInventoryHUD();
         }
+    }
+    
+    checkBlockPlayerCollision(blockX, blockY, blockZ, playerPos, playerRadius, playerHeight) {
+        // Check if the block would collide with the player's collision cylinder
+        
+        // Calculate block center
+        const blockCenterX = blockX + 0.5;
+        const blockCenterY = blockY + 0.5;
+        const blockCenterZ = blockZ + 0.5;
+        
+        // Calculate player center (adjusted for height)
+        const playerCenterX = playerPos.x;
+        const playerCenterY = playerPos.y - 0.5 + playerHeight / 2;
+        const playerCenterZ = playerPos.z;
+        
+        // Check horizontal distance (using squared distance for efficiency)
+        const dx = blockCenterX - playerCenterX;
+        const dz = blockCenterZ - playerCenterZ;
+        const horizontalDistSq = dx * dx + dz * dz;
+        
+        // Block radius is 0.5, so combined radius is playerRadius + 0.5
+        const combinedRadius = playerRadius + 0.5;
+        
+        if (horizontalDistSq >= combinedRadius * combinedRadius) {
+            return false; // No collision possible if too far horizontally
+        }
+        
+        // Check vertical overlap
+        const playerBottom = playerCenterY - playerHeight / 2;
+        const playerTop = playerCenterY + playerHeight / 2;
+        const blockBottom = blockCenterY - 0.5;
+        const blockTop = blockCenterY + 0.5;
+        
+        // Check if block overlaps with player vertically
+        if (playerBottom >= blockTop || playerTop <= blockBottom) {
+            return false; // No vertical overlap
+        }
+        
+        // If we get here, there's both horizontal and vertical overlap
+        return true;
     }
     
     update(delta) {

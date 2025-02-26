@@ -199,216 +199,109 @@ function animate() {
             // Apply gravity
             velocity.y -= gravity * delta;
 
-            // Get movement direction
-            direction.z = Number(moveForward) - Number(moveBackward);
-            direction.x = Number(moveRight) - Number(moveLeft);
-            direction.normalize();
-
-            // Move player
-            if (moveForward || moveBackward) velocity.z = -direction.z * 5.0;
-            else velocity.z = 0;
-
-            if (moveLeft || moveRight) velocity.x = -direction.x * 5.0;
-            else velocity.x = 0;
-
+            // Reset velocity before calculating new movement
+            velocity.x = 0;
+            velocity.z = 0;
+            
+            // Get camera direction vectors
+            const cameraDirection = new THREE.Vector3();
+            camera.getWorldDirection(cameraDirection);
+            // We only care about horizontal movement, so zero out the Y component
+            cameraDirection.y = 0;
+            cameraDirection.normalize();
+            
+            // Calculate right vector (perpendicular to camera direction)
+            const rightVector = new THREE.Vector3();
+            rightVector.crossVectors(camera.up, cameraDirection).normalize();
+            
+            // Calculate movement based on key presses
+            const speed = 5.0;
+            
+            // Forward/backward movement along camera direction
+            if (moveForward) {
+                velocity.add(cameraDirection.clone().multiplyScalar(speed));
+            }
+            if (moveBackward) {
+                velocity.add(cameraDirection.clone().multiplyScalar(-speed));
+            }
+            
+            // Left/right movement perpendicular to camera direction
+            if (moveLeft) {
+                velocity.add(rightVector.clone().multiplyScalar(speed));
+            }
+            if (moveRight) {
+                velocity.add(rightVector.clone().multiplyScalar(-speed));
+            }
+            
             // Add damping to make movement smoother
             const damping = 0.9;
             velocity.x *= damping;
             velocity.z *= damping;
-
+            
             // Set minimum velocity threshold to prevent tiny movements
             const minVelocity = 0.01;
             if (Math.abs(velocity.x) < minVelocity) velocity.x = 0;
             if (Math.abs(velocity.z) < minVelocity) velocity.z = 0;
-
-            // Check for horizontal collisions with a more robust approach
+            
+            // Improved collision detection
+            const playerPos = controls.getObject().position;
             const playerRadius = 0.3;
             const playerHeight = 1.8;
-            const playerPos = controls.getObject().position;
-            const nextPosition = playerPos.clone();
-
+            
+            // Store original position to revert if collision occurs
+            const originalX = playerPos.x;
+            const originalZ = playerPos.z;
+            
             // Calculate next position based on velocity
-            nextPosition.x += -velocity.x * delta;
-            nextPosition.z += -velocity.z * delta;
-
-            // Create a more detailed collision box around the player
-            const checkPositions = [];
-            const directions = [
-                [1, 0], [-1, 0], [0, 1], [0, -1], // Cardinal directions
-                [0.7, 0.7], [0.7, -0.7], [-0.7, 0.7], [-0.7, -0.7] // Diagonals
-            ];
-
-            // Check at multiple heights (feet, middle, head)
-            const heights = [0, 0.9, 1.7]; 
-
-            for (const height of heights) {
-                for (const [dx, dz] of directions) {
-                    const x = Math.floor(playerPos.x + dx * playerRadius);
-                    const y = Math.floor(playerPos.y - 0.5 + height); // Adjust for player height
-                    const z = Math.floor(playerPos.z + dz * playerRadius);
-                    checkPositions.push([x, y, z]);
-                }
+            const nextX = originalX + velocity.x * delta;
+            const nextZ = originalZ + velocity.z * delta;
+            
+            // Try moving on X axis first
+            playerPos.x = nextX;
+            if (checkCollision(playerPos, playerRadius, playerHeight)) {
+                // Collision occurred, revert position
+                playerPos.x = originalX;
             }
-
-            let collisionX = false;
-            let collisionZ = false;
-            let collidingBlocks = [];
-
-            // Check all positions for collisions
-            for (const [x, y, z] of checkPositions) {
-                const blockKey = `${x},${y},${z}`;
-                if (world.blocks.has(blockKey)) {
-                    collidingBlocks.push([x, y, z]);
-                    
-                    // Determine collision direction based on velocity
-                    if (velocity.x !== 0) {
-                        const blockX = x;
-                        const playerX = Math.floor(playerPos.x);
-                        
-                        // Only count as collision if block is in the direction we're moving
-                        if ((velocity.x > 0 && blockX > playerX) || 
-                            (velocity.x < 0 && blockX < playerX)) {
-                            collisionX = true;
-                        }
-                    }
-                    
-                    if (velocity.z !== 0) {
-                        const blockZ = z;
-                        const playerZ = Math.floor(playerPos.z);
-                        
-                        // Only count as collision if block is in the direction we're moving
-                        if ((velocity.z > 0 && blockZ > playerZ) || 
-                            (velocity.z < 0 && blockZ < playerZ)) {
-                            collisionZ = true;
-                        }
-                    }
-                }
+            
+            // Then try moving on Z axis
+            playerPos.z = nextZ;
+            if (checkCollision(playerPos, playerRadius, playerHeight)) {
+                // Collision occurred, revert position
+                playerPos.z = originalZ;
             }
-
-            // Completely disable stepping for trees and tall structures
-            let canStep = false;
-
-            // Only try stepping if we have a collision and are moving
-            if ((collisionX || collisionZ) && (Math.abs(velocity.x) > 0.1 || Math.abs(velocity.z) > 0.1)) {
-                // Get the lowest colliding block
-                let lowestBlock = null;
-                let lowestY = Infinity;
-                
-                for (const [x, y, z] of collidingBlocks) {
-                    if (y < lowestY) {
-                        lowestY = y;
-                        lowestBlock = [x, y, z];
-                    }
-                }
-                
-                if (lowestBlock) {
-                    const [x, y, z] = lowestBlock;
-                    
-                    // Only allow stepping if:
-                    // 1. The block is at or below player's feet level
-                    // 2. There's no block above it
-                    // 3. The block is only one block high
-                    
-                    if (y <= Math.floor(playerPos.y - 0.4)) {
-                        const blockAboveKey = `${x},${y+1},${z}`;
-                        const blockAboveAboveKey = `${x},${y+2},${z}`;
-                        
-                        // Check if there's exactly one block (not a column/tree)
-                        if (!world.blocks.has(blockAboveKey) && !world.blocks.has(blockAboveAboveKey)) {
-                            // This is a valid step - only one block high
-                            canStep = true;
-                            
-                            // Adjust player height to step up
-                            const targetY = y + 1.5; // Position on top of the block
-                            
-                            // Only adjust if we need to step up (not down)
-                            if (targetY > playerPos.y && targetY - playerPos.y < 0.6) {
-                                controls.getObject().position.y = targetY;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Apply movement with collision detection
-            if (!collisionX || canStep) {
-                controls.moveRight(-velocity.x * delta);
-            }
-            if (!collisionZ || canStep) {
-                controls.moveForward(-velocity.z * delta);
-            }
-
-            // Update vertical position with collision detection
-            const nextY = controls.getObject().position.y + velocity.y * delta;
-
-            // Check for ground collision - use a more stable approach
-            let onGround = false;
-            const feetY = Math.floor(playerPos.y - 0.5);
-
-            // Use a small tolerance to prevent jittering
-            const GROUND_TOLERANCE = 0.05;
-            const EXACT_GROUND_HEIGHT = feetY + 1.5;
-
-            // Check if there's a block directly below the player
-            const groundKey = `${Math.floor(playerPos.x)},${feetY},${Math.floor(playerPos.z)}`;
-
-            if (world.blocks.has(groundKey)) {
-                // Only adjust position if we're not already very close to the exact height
-                if (Math.abs(playerPos.y - EXACT_GROUND_HEIGHT) > GROUND_TOLERANCE) {
-                    controls.getObject().position.y = EXACT_GROUND_HEIGHT;
-                }
-                
-                // Always stop falling and enable jumping when on ground
-                if (velocity.y <= 0) {
+            
+            // Vertical movement and collision
+            const originalY = playerPos.y;
+            const nextY = originalY + velocity.y * delta;
+            
+            // Check if we're going to hit the ground
+            playerPos.y = nextY;
+            
+            // Check for ground or ceiling collision
+            if (velocity.y < 0) {
+                // We're falling, check for ground
+                if (checkGroundCollision(playerPos, playerRadius)) {
+                    // Find the exact ground height
+                    const groundHeight = findGroundHeight(playerPos, playerRadius);
+                    playerPos.y = groundHeight + 1.5; // Position player exactly on ground
                     velocity.y = 0;
                     canJump = true;
-                    onGround = true;
                 }
-            } else {
-                // Check surrounding blocks for ground collision (for edge cases)
-                const checkRadius = 0.3;
-                const surroundingPositions = [
-                    [Math.floor(playerPos.x + checkRadius), feetY, Math.floor(playerPos.z)],
-                    [Math.floor(playerPos.x - checkRadius), feetY, Math.floor(playerPos.z)],
-                    [Math.floor(playerPos.x), feetY, Math.floor(playerPos.z + checkRadius)],
-                    [Math.floor(playerPos.x), feetY, Math.floor(playerPos.z - checkRadius)]
-                ];
-
-                for (const [x, y, z] of surroundingPositions) {
-                    const key = `${x},${y},${z}`;
-                    if (world.blocks.has(key) && velocity.y <= 0) {
-                        // Only adjust position if we're not already very close to the exact height
-                        if (Math.abs(playerPos.y - EXACT_GROUND_HEIGHT) > GROUND_TOLERANCE) {
-                            controls.getObject().position.y = EXACT_GROUND_HEIGHT;
-                        }
-                        
-                        velocity.y = 0;
-                        canJump = true;
-                        onGround = true;
-                        break;
-                    }
+            } else if (velocity.y > 0) {
+                // We're jumping/rising, check for ceiling
+                if (checkCeilingCollision(playerPos, playerRadius, playerHeight)) {
+                    // Hit ceiling, stop upward movement
+                    playerPos.y = originalY;
+                    velocity.y = 0;
                 }
             }
-
-            // Check for ceiling collision
-            const headY = Math.floor(playerPos.y + 1.0); // Position of player's head
-            const ceilingKey = `${Math.floor(playerPos.x)},${headY},${Math.floor(playerPos.z)}`;
-
-            if (world.blocks.has(ceilingKey) && velocity.y > 0) {
-                velocity.y = 0;
-            }
-
-            // If not on ground and not hitting ceiling, apply gravity and update position
-            if (!onGround) {
-                controls.getObject().position.y = nextY;
-            }
-
+            
             // Set a minimum height to prevent falling forever
-            if (controls.getObject().position.y < -50) {
+            if (playerPos.y < -50) {
                 velocity.y = 0;
-                controls.getObject().position.y = 10;
-                controls.getObject().position.x = 0;
-                controls.getObject().position.z = 0;
+                playerPos.y = 10;
+                playerPos.x = 0;
+                playerPos.z = 0;
             }
         }
         
@@ -417,44 +310,218 @@ function animate() {
         document.getElementById('position').textContent = 
             `X: ${Math.round(position.x)}, Y: ${Math.round(position.y)}, Z: ${Math.round(position.z)}`;
 
-        // Visualize collisions in debug mode
+        // Debug visualization
         if (debugMode) {
-            // Clear previous markers
-            debugMarkers.forEach(marker => scene.remove(marker));
-            debugMarkers = [];
-            
-            // Create markers for colliding blocks
-            const markerGeometry = new THREE.BoxGeometry(1, 1, 1);
-            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true });
-            
-            collidingBlocks.forEach(([x, y, z]) => {
-                const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-                marker.position.set(x + 0.5, y + 0.5, z + 0.5);
-                scene.add(marker);
-                debugMarkers.push(marker);
-            });
-            
-            // Add a marker for the player's collision box
-            const playerMarkerGeometry = new THREE.BoxGeometry(
-                playerRadius * 2, playerHeight, playerRadius * 2
-            );
-            const playerMarkerMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0x00ff00, wireframe: true 
-            });
-            const playerMarker = new THREE.Mesh(playerMarkerGeometry, playerMarkerMaterial);
-            playerMarker.position.copy(playerPos);
-            playerMarker.position.y -= 0.5; // Adjust to match player's feet
-            scene.add(playerMarker);
-            debugMarkers.push(playerMarker);
+            updateDebugVisualization(position);
         }
 
         if (physicsEnabled && world.updateChunks) {
-            const playerPos = controls.getObject().position;
-            world.updateChunks(playerPos.x, playerPos.z);
+            world.updateChunks(position.x, position.z);
         }
 
         prevTime = time;
     }
     
     renderer.render(scene, camera);
+}
+
+// New helper functions for collision detection
+function checkCollision(position, radius, height) {
+    // Check a cylinder around the player for collisions
+    const checkPoints = [];
+    const numAngles = 8; // Check 8 points around the player
+    
+    // Check at different heights: feet, middle, head
+    const heights = [0.1, 0.9, 1.7];
+    
+    for (const h of heights) {
+        for (let i = 0; i < numAngles; i++) {
+            const angle = (i / numAngles) * Math.PI * 2;
+            const x = position.x + Math.cos(angle) * radius;
+            const z = position.z + Math.sin(angle) * radius;
+            const y = position.y - 0.5 + h; // Adjust for player height
+            
+            checkPoints.push({x, y, z});
+        }
+    }
+    
+    // Also check the center of the player
+    for (const h of heights) {
+        checkPoints.push({
+            x: position.x,
+            y: position.y - 0.5 + h,
+            z: position.z
+        });
+    }
+    
+    // Check if any point collides with a block
+    for (const point of checkPoints) {
+        const blockX = Math.floor(point.x);
+        const blockY = Math.floor(point.y);
+        const blockZ = Math.floor(point.z);
+        
+        const blockKey = `${blockX},${blockY},${blockZ}`;
+        if (world.blocks.has(blockKey)) {
+            return true; // Collision detected
+        }
+    }
+    
+    return false; // No collision
+}
+
+function checkGroundCollision(position, radius) {
+    // Check points below the player
+    const checkPoints = [];
+    const numAngles = 8;
+    
+    // Check the center and around the player's feet
+    for (let i = 0; i < numAngles; i++) {
+        const angle = (i / numAngles) * Math.PI * 2;
+        const x = position.x + Math.cos(angle) * radius;
+        const z = position.z + Math.sin(angle) * radius;
+        const y = position.y - 0.6; // Just below feet
+        
+        checkPoints.push({x, y, z});
+    }
+    
+    // Also check center point
+    checkPoints.push({
+        x: position.x,
+        y: position.y - 0.6,
+        z: position.z
+    });
+    
+    // Check if any point collides with a block
+    for (const point of checkPoints) {
+        const blockX = Math.floor(point.x);
+        const blockY = Math.floor(point.y);
+        const blockZ = Math.floor(point.z);
+        
+        const blockKey = `${blockX},${blockY},${blockZ}`;
+        if (world.blocks.has(blockKey)) {
+            return true; // Ground collision detected
+        }
+    }
+    
+    return false; // No ground collision
+}
+
+function checkCeilingCollision(position, radius, height) {
+    // Check points above the player's head
+    const checkPoints = [];
+    const numAngles = 8;
+    
+    // Check around the player's head
+    for (let i = 0; i < numAngles; i++) {
+        const angle = (i / numAngles) * Math.PI * 2;
+        const x = position.x + Math.cos(angle) * radius;
+        const z = position.z + Math.sin(angle) * radius;
+        const y = position.y - 0.5 + height + 0.1; // Just above head
+        
+        checkPoints.push({x, y, z});
+    }
+    
+    // Also check center point
+    checkPoints.push({
+        x: position.x,
+        y: position.y - 0.5 + height + 0.1,
+        z: position.z
+    });
+    
+    // Check if any point collides with a block
+    for (const point of checkPoints) {
+        const blockX = Math.floor(point.x);
+        const blockY = Math.floor(point.y);
+        const blockZ = Math.floor(point.z);
+        
+        const blockKey = `${blockX},${blockY},${blockZ}`;
+        if (world.blocks.has(blockKey)) {
+            return true; // Ceiling collision detected
+        }
+    }
+    
+    return false; // No ceiling collision
+}
+
+function findGroundHeight(position, radius) {
+    // Find the highest ground point under the player
+    let highestY = -Infinity;
+    const numAngles = 8;
+    
+    // Check the center and around the player's feet
+    const checkPoints = [];
+    for (let i = 0; i < numAngles; i++) {
+        const angle = (i / numAngles) * Math.PI * 2;
+        const x = position.x + Math.cos(angle) * radius;
+        const z = position.z + Math.sin(angle) * radius;
+        
+        checkPoints.push({x, z});
+    }
+    
+    // Also check center point
+    checkPoints.push({
+        x: position.x,
+        z: position.z
+    });
+    
+    // For each point, scan downward to find ground
+    for (const point of checkPoints) {
+        // Start from player's current position and scan down
+        for (let y = Math.floor(position.y); y > Math.floor(position.y) - 10; y--) {
+            const blockX = Math.floor(point.x);
+            const blockY = y;
+            const blockZ = Math.floor(point.z);
+            
+            const blockKey = `${blockX},${blockY},${blockZ}`;
+            if (world.blocks.has(blockKey)) {
+                if (y > highestY) {
+                    highestY = y;
+                }
+                break; // Found ground for this point
+            }
+        }
+    }
+    
+    return highestY;
+}
+
+function updateDebugVisualization(position) {
+    // Clear previous markers
+    debugMarkers.forEach(marker => scene.remove(marker));
+    debugMarkers = [];
+    
+    // Create a marker for the player's collision cylinder
+    const playerRadius = 0.3;
+    const playerHeight = 1.8;
+    
+    // Create cylinder for player collision volume
+    const cylinderGeometry = new THREE.CylinderGeometry(playerRadius, playerRadius, playerHeight, 16);
+    const cylinderMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+    const cylinderMesh = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+    cylinderMesh.position.copy(position);
+    cylinderMesh.position.y -= 0.5; // Adjust to match player's feet
+    scene.add(cylinderMesh);
+    debugMarkers.push(cylinderMesh);
+    
+    // Visualize check points
+    const pointGeometry = new THREE.SphereGeometry(0.05, 8, 8);
+    const pointMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    
+    // Create check points for collision visualization
+    const numAngles = 8;
+    const heights = [0.1, 0.9, 1.7];
+    
+    for (const h of heights) {
+        for (let i = 0; i < numAngles; i++) {
+            const angle = (i / numAngles) * Math.PI * 2;
+            const x = position.x + Math.cos(angle) * playerRadius;
+            const z = position.z + Math.sin(angle) * playerRadius;
+            const y = position.y - 0.5 + h;
+            
+            const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
+            pointMesh.position.set(x, y, z);
+            scene.add(pointMesh);
+            debugMarkers.push(pointMesh);
+        }
+    }
 } 

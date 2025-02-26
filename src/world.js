@@ -633,4 +633,17 @@ export class World {
         this.blocks.set(position, blockData);
         chunk.blocks.set(position, blockData);
     }
+
+    // Add a method to check if a block exists at a specific position
+    blockExistsAt(x, y, z) {
+        const position = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+        return this.blocks.has(position);
+    }
+
+    // Add a method to get block type at a specific position
+    getBlockAt(x, y, z) {
+        const position = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+        const block = this.blocks.get(position);
+        return block ? block.type : null;
+    }
 } 
